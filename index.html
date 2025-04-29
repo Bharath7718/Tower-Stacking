@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ultimate Tower Stacking Challenge</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #f0f0f0;
+            text-align: center;
+            touch-action: manipulation;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+        }
+        #canvas {
+            background-color: #87CEEB;
+            display: block;
+            margin: 0 auto;
+            touch-action: none;
+            transition: all 0.3s;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            max-width: 250px;
+            border: 2px solid #4CAF50;
+            z-index: 10;
+        }
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background-color: #45a049;
+            transform: scale(1.05);
+        }
+        #timer, #height, #score {
+            font-weight: bold;
+            font-size: 18px;
+            color: #333;
+        }
+        .mobile-controls {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            width: 100%;
+            justify-content: center;
+            gap: 20px;
+            z-index: 10;
+        }
+        .mobile-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: rgba(76, 175, 80, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            user-select: none;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        #message {
+            margin-top: 10px;
+            font-weight: bold;
+            min-height: 20px;
+            color: #2c3e50;
+            transition: all 0.3s;
+        }
+        #wind-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            font-weight: bold;
+        }
+        #combo-meter {
+            position: absolute;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 215, 0, 0.8);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            display: none;
+        }
+        #power-ups {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .power-up {
+            width: 40px;
+            height: 40px;
+            background-color: gold;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            cursor: pointer;
+        }
+        @media (max-width: 768px) {
+            .mobile-controls {
+                display: flex;
+            }
+            #ui {
+                max-width: 200px;
+                padding: 10px;
+                font-size: 14px;
+            }
+            #wind-indicator {
+                top: 10px;
+                right: 10px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="canvas"></canvas>
+        <div id="ui">
+            <h2>Tower Stacking Challenge</h2>
+            <p>Height: <span id="height">0</span> blocks</p>
+            <p>Score: <span id="score">0</span></p>
+            <p>Time: <span id="timer">30</span>s</p>
+            <p>Level: <span id="level">1</span></p>
+            <button id="rotate-btn">Rotate Block (R)</button>
+            <button id="place-btn">Place Block (Space)</button>
+            <button id="restart-btn">Restart Game</button>
+            <button id="multiplayer-btn">Multiplayer Mode</button>
+            <div id="message"></div>
+        </div>
+        
+        <div id="wind-indicator">Wind: 0</div>
+        <div id="combo-meter">Combo: 0x</div>
+        <div id="power-ups">
+            <div class="power-up" id="time-freeze" title="Freeze time for 5 seconds">⏱️</div>
+            <div class="power-up" id="slow-mo" title="Slow motion for 5 seconds">🐌</div>
+        </div>
+        
+        <div class="mobile-controls">
+            <div class="mobile-btn" id="mobile-rotate">↻</div>
+            <div class="mobile-btn" id="mobile-place">↓</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.18.0/matter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
+    <script>
+        // Game setup
+        const Engine = Matter.Engine,
+              Render = Matter.Render,
+              Runner = Matter.Runner,
+              Bodies = Matter.Bodies,
+              Composite = Matter.Composite,
+              Mouse = Matter.Mouse,
+              MouseConstraint = Matter.MouseConstraint,
+              Events = Matter.Events;
+
+        // Create engine
+        const engine = Matter.Engine.create();
+        const world = engine.world;
+        engine.gravity.y = 1;
+
+        // Create renderer
+        const canvas = document.getElementById('canvas');
+        const render = Render.create({
+            canvas: canvas,
+            engine: engine,
+            options: {
+                width: window.innerWidth,
+                height: window.innerHeight,
+                wireframes: false,
+                background: '#87CEEB'
+            }
+        });
+
+        // Set canvas size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            render.options.width = window.innerWidth;
+            render.options.height = window.innerHeight;
+            Render.setPixelRatio(render, window.devicePixelRatio);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Game variables
+        let currentBlock;
+        let blockWidth = 80;
+        let blockHeight = 20;
+        let blockDepth = 40;
+        let towerBase;
+        let isHorizontal = false;
+        let gameStarted = false;
+        let towerHeight = 0;
+        let gameOver = false;
+        let timeLeft = 30;
+        let timerInterval;
+        let level = 1;
+        let specialBlockCounter = 0;
+        let isMultiplayer = false;
+        let playerTurn = 1;
+        let scores = [0, 0];
+        let totalScore = 0;
+        let comboCount = 0;
+        let comboTimeout;
+        let windForce = 0;
+        let windInterval;
+        let powerUps = {
+            timeFreeze: 1,
+            slowMo: 1
+        };
+        const BASE_HEIGHT = 200;
+        const FAILURE_THRESHOLD = 50;
+        const PRECISION_THRESHOLD = 5;
+
+        // Sound effects
+        const sounds = {
+            place: new Howl({ src: ['https://assets.codepen.io/3364143/place-block.mp3'] }),
+            rotate: new Howl({ src: ['https://assets.codepen.io/3364143/rotate.mp3'] }),
+            success: new Howl({ src: ['https://assets.codepen.io/3364143/success.mp3'] }),
+            fail: new Howl({ src: ['https://assets.codepen.io/3364143/fail.mp3'] }),
+            collapse: new Howl({ src: ['https://assets.codepen.io/3364143/collapse.mp3'] }),
+            combo: new Howl({ src: ['https://assets.codepen.io/3364143/combo.mp3'] }),
+            powerup: new Howl({ src: ['https://assets.codepen.io/3364143/powerup.mp3'] }),
+            wind: new Howl({ src: ['https://assets.codepen.io/3364143/wind.mp3'] })
+        };
+
+        // Colors and special block types
+        const colors = ['#8B4513', '#A0522D', '#CD853F', '#D2691E', '#B8860B'];
+        const specialBlocks = [
+            { color: '#FF0000', width: 60, depth: 60, type: 'square', score: 50 },
+            { color: '#0000FF', width: 100, depth: 15, type: 'long', score: 40 },
+            { color: '#00FF00', width: 40, depth: 40, type: 'small', score: 60 },
+            { color: '#FF00FF', width: 80, depth: 20, type: 'bouncy', score: 30, restitution: 0.9 },
+            { color: '#FFFF00', width: 80, depth: 20, type: 'heavy', score: 20, mass: 5 }
+        ];
+
+        // Create base
+        function createBase() {
+            const baseWidth = 200;
+            const baseThickness = 30;
+            const baseY = canvas.height - BASE_HEIGHT;
+            
+            towerBase = Bodies.rectangle(
+                canvas.width / 2, 
+                baseY, 
+                baseWidth, 
+                baseThickness, 
+                { 
+                    isStatic: true, 
+                    render: { 
+                        fillStyle: '#555',
+                        strokeStyle: '#333',
+                        lineWidth: 4
+                    },
+                    label: 'base',
+                    chamfer: { radius: 8 }
+                }
+            );
+            Composite.add(world, towerBase);
+        }
+
+        // Create a new block
+        function createNewBlock() {
+            specialBlockCounter++;
+            let isSpecial = specialBlockCounter % 5 === 0;
+            let blockConfig = { 
+                width: blockWidth, 
+                depth: blockDepth, 
+                color: colors[Math.floor(Math.random() * colors.length)],
+                score: 10
+            };
+            
+            if (isSpecial) {
+                blockConfig = specialBlocks[Math.floor(Math.random() * specialBlocks.length)];
+                showMessage("Special block!", "#FF5722", 1500);
+            }
+            
+            const width = isHorizontal ? blockConfig.depth : blockConfig.width;
+            const height = blockHeight;
+            
+            const options = { 
+                restitution: blockConfig.restitution || 0.1,
+                friction: 0.5,
+                render: { 
+                    fillStyle: blockConfig.color,
+                    strokeStyle: '#000',
+                    lineWidth: 1
+                },
+                label: isSpecial ? 'special' : 'normal',
+                mass: blockConfig.mass || 1
+            };
+            
+            currentBlock = Bodies.rectangle(
+                canvas.width / 2, 
+                100, 
+                width, 
+                height, 
+                options
+            );
+            
+            // Store score value for this block
+            currentBlock.scoreValue = blockConfig.score;
+            
+            Composite.add(world, currentBlock);
+            
+            if (isMultiplayer) {
+                const playerColor = playerTurn === 1 ? '#3498db' : '#e74c3c';
+                currentBlock.render.fillStyle = playerColor;
+            }
+            
+            // Apply wind force to the new block
+            if (windForce !== 0) {
+                Matter.Body.applyForce(currentBlock, currentBlock.position, {
+                    x: windForce * 0.005,
+                    y: 0
+                });
+            }
+        }
+
+        // Rotate the current block
+        function rotateBlock() {
+            if (!currentBlock || gameOver) return;
+            
+            sounds.rotate.play();
+            isHorizontal = !isHorizontal;
+            
+            const isSpecial = currentBlock.label === 'special';
+            let newWidth;
+            
+            if (isSpecial) {
+                const specialType = specialBlocks.find(b => 
+                    b.color === currentBlock.render.fillStyle
+                );
+                newWidth = isHorizontal ? specialType.depth : specialType.width;
+            } else {
+                newWidth = isHorizontal ? blockDepth : blockWidth;
+            }
+            
+            Matter.Body.setVertices(currentBlock, 
+                Bodies.rectangle(
+                    currentBlock.position.x, 
+                    currentBlock.position.y, 
+                    newWidth, 
+                    blockHeight
+                ).vertices
+            );
+        }
+
+        // Place the current block
+        function placeBlock() {
+            if (!currentBlock || gameOver) return;
+            
+            // Check if block placement failed
+            if (currentBlock.position.y > canvas.height - (BASE_HEIGHT - FAILURE_THRESHOLD)) {
+                endGame("Block placement failed!");
+                return;
+            }
+            
+            // Check alignment with previous block
+            const towerBlocks = Composite.allBodies(world).filter(body => 
+                (body.label === 'normal' || body.label === 'special') && 
+                body.id !== currentBlock.id
+            );
+            
+            if (towerBlocks.length > 0) {
+                const lastBlock = towerBlocks[towerBlocks.length - 1];
+                const xDiff = Math.abs(currentBlock.position.x - lastBlock.position.x);
+                const yDiff = Math.abs(currentBlock.position.y - lastBlock.position.y);
+                
+                if (xDiff > PRECISION_THRESHOLD || yDiff > blockHeight + PRECISION_THRESHOLD) {
+                    endGame("Block misaligned!");
+                    return;
+                }
+                
+                // Calculate precision bonus (1-5 points)
+                const precisionBonus = Math.max(1, 5 - Math.floor(xDiff));
+                addScore(precisionBonus, "Precision +" + precisionBonus);
+            }
+            
+            sounds.place.play();
+            towerHeight++;
+            document.getElementById('height').textContent = towerHeight;
+            
+            // Add block score to total
+            addScore(currentBlock.scoreValue, "Block +" + currentBlock.scoreValue);
+            
+            // Combo system
+            comboCount++;
+            updateCombo();
+            
+            createParticles(currentBlock.position.x, currentBlock.position.y, currentBlock.render.fillStyle);
+            resetTimer();
+            
+            if (towerHeight % 5 === 0) {
+                levelUp();
+            }
+            
+            if (isMultiplayer) {
+                scores[playerTurn - 1] += currentBlock.scoreValue;
+                playerTurn = playerTurn === 1 ? 2 : 1;
+                showMessage(`Player ${playerTurn}'s turn`, playerTurn === 1 ? '#3498db' : '#e74c3c', 1500);
+            }
+            
+            setTimeout(() => {
+                if (!gameOver) {
+                    createNewBlock();
+                }
+            }, 500);
+        }
+
+        // Add score with visual feedback
+        function addScore(amount, message = "") {
+            totalScore += amount * (1 + comboCount * 0.1); // Combo multiplier
+            document.getElementById('score').textContent = Math.floor(totalScore);
+            
+            if (message) {
+                const scoreEl = document.getElementById('score');
+                scoreEl.style.transform = "scale(1.2)";
+                scoreEl.style.color = "#FFD700";
+                
+                setTimeout(() => {
+                    scoreEl.style.transform = "scale(1)";
+                    scoreEl.style.color = "#333";
+                }, 300);
+                
+                if (amount > 10) {
+                    showMessage(message, "#FFD700", 1000);
+                }
+            }
+        }
+
+        // Combo system
+        function updateCombo() {
+            clearTimeout(comboTimeout);
+            
+            if (comboCount > 1) {
+                document.getElementById('combo-meter').style.display = "block";
+                document.getElementById('combo-meter').textContent = `Combo: ${comboCount}x`;
+                
+                if (comboCount % 5 === 0) {
+                    sounds.combo.play();
+                    showMessage(`${comboCount}x Combo!`, "#FF5722", 1500);
+                    addScore(comboCount * 2, `Combo x${comboCount}!`);
+                }
+            }
+            
+            comboTimeout = setTimeout(() => {
+                comboCount = 0;
+                document.getElementById('combo-meter').style.display = "none";
+            }, 3000);
+        }
+
+        // Create particles effect
+        function createParticles(x, y, color) {
+            const particles = [];
+            const particleCount = 20;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = Bodies.circle(
+                    x + (Math.random() - 0.5) * 30,
+                    y + (Math.random() - 0.5) * 30,
+                    Math.random() * 3 + 1,
+                    {
+                        render: { fillStyle: color },
+                        friction: 0.001,
+                        restitution: 0.7,
+                        life: 60,
+                        label: 'particle'
+                    }
+                );
+                
+                Matter.Body.applyForce(particle, particle.position, {
+                    x: (Math.random() - 0.5) * 0.02,
+                    y: -Math.random() * 0.02
+                });
+                
+                particles.push(particle);
+            }
+            
+            Composite.add(world, particles);
+            
+            setTimeout(() => {
+                Composite.remove(world, particles);
+            }, 1000);
+        }
+
+        // Level up
+        function levelUp() {
+            level++;
+            document.getElementById('level').textContent = level;
+            sounds.success.play();
+            showMessage(`Level ${level}!`, "#4CAF50", 1500);
+            
+            // Make game progressively harder
+            blockWidth = Math.max(40, blockWidth - 5);
+            blockDepth = Math.max(40, blockDepth - 5);
+            engine.gravity.y = Math.min(1.5, engine.gravity.y + 0.1);
+            timeLeft = Math.max(15, timeLeft - 2);
+            
+            // Increase wind at higher levels
+            if (level % 3 === 0) {
+                setupWind();
+            }
+            
+            // Add power-ups every 5 levels
+            if (level % 5 === 0) {
+                powerUps.timeFreeze++;
+                powerUps.slowMo++;
+                updatePowerUpDisplay();
+                showMessage("Power-up available!", "#9C27B0", 1500);
+            }
+        }
+
+        // Wind system
+        function setupWind() {
+            clearInterval(windInterval);
+            
+            // Random wind direction and strength
+            windForce = (Math.random() - 0.5) * (2 + level * 0.5);
+            document.getElementById('wind-indicator').textContent = 
+                `Wind: ${windForce > 0 ? "→" : "←"} ${Math.abs(windForce).toFixed(1)}`;
+            
+            if (Math.abs(windForce) > 1.5) {
+                sounds.wind.play();
+            }
+            
+            // Change wind periodically
+            windInterval = setInterval(() => {
+                windForce = (Math.random() - 0.5) * (2 + level * 0.5);
+                document.getElementById('wind-indicator').textContent = 
+                    `Wind: ${windForce > 0 ? "→" : "←"} ${Math.abs(windForce).toFixed(1)}`;
+                
+                if (Math.abs(windForce) > 1.5) {
+                    sounds.wind.play();
+                }
+            }, 5000 + Math.random() * 5000);
+        }
+
+        // Power-up system
+        function updatePowerUpDisplay() {
+            document.getElementById('time-freeze').textContent = `⏱️×${powerUps.timeFreeze}`;
+            document.getElementById('slow-mo').textContent = `🐌×${powerUps.slowMo}`;
+        }
+
+        function activateTimeFreeze() {
+            if (powerUps.timeFreeze <= 0 || gameOver) return;
+            
+            sounds.powerup.play();
+            powerUps.timeFreeze--;
+            updatePowerUpDisplay();
+            
+            clearInterval(timerInterval);
+            showMessage("Time Frozen!", "#2196F3", 2000);
+            
+            setTimeout(() => {
+                if (!gameOver) {
+                    startTimer();
+                    showMessage("Time resumes!", "#2196F3", 1000);
+                }
+            }, 5000);
+        }
+
+        function activateSlowMo() {
+            if (powerUps.slowMo <= 0 || gameOver) return;
+            
+            sounds.powerup.play();
+            powerUps.slowMo--;
+            updatePowerUpDisplay();
+            
+            const originalSpeed = engine.timing.timeScale;
+            engine.timing.timeScale = 0.5;
+            showMessage("Slow Motion!", "#9C27B0", 2000);
+            
+            setTimeout(() => {
+                engine.timing.timeScale = originalSpeed;
+                showMessage("Back to normal!", "#9C27B0", 1000);
+            }, 5000);
+        }
+
+        // Timer functions
+        function startTimer() {
+            clearInterval(timerInterval);
+            timeLeft = level === 1 ? 30 : Math.max(15, 35 - level * 2);
+            document.getElementById('timer').textContent = timeLeft;
+            
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                document.getElementById('timer').textContent = timeLeft;
+                
+                if (timeLeft <= 5) {
+                    const timerEl = document.getElementById('timer');
+                    timerEl.style.color = timeLeft % 2 === 0 ? 'red' : '#333';
+                }
+                
+                if (timeLeft <= 0) {
+                    timeUp();
+                }
+            }, 1000);
+        }
+
+        function resetTimer() {
+            startTimer();
+        }
+
+        function timeUp() {
+            clearInterval(timerInterval);
+            showMessage("Time's up!", "#d9534f", 1500);
+            sounds.fail.play();
+            
+            if (currentBlock) {
+                Matter.Body.applyForce(currentBlock, currentBlock.position, {
+                    x: (Math.random() - 0.5) * 0.1,
+                    y: 0.05
+                });
+            }
+            
+            setTimeout(() => {
+                endGame();
+            }, 1000);
+        }
+
+        // Show message
+        function showMessage(text, color, duration = 2000) {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = text;
+            messageEl.style.color = color;
+            messageEl.style.transform = "scale(1.1)";
+            
+            setTimeout(() => {
+                messageEl.style.transform = "scale(1)";
+                if (messageEl.textContent === text) {
+                    messageEl.textContent = '';
+                }
+            }, duration);
+        }
+
+        // End game
+        function endGame(reason = "") {
+            if (gameOver) return;
+            
+            gameOver = true;
+            clearInterval(timerInterval);
+            clearInterval(windInterval);
+            sounds.collapse.play();
+            
+            // Make all blocks dynamic
+            Composite.allBodies(world).forEach(body => {
+                if (!body.isStatic && (body.label === 'normal' || body.label === 'special')) {
+                    body.isStatic = false;
+                    Matter.Body.applyForce(body, body.position, {
+                        x: (Math.random() - 0.5) * 0.2,
+                        y: -Math.random() * 0.1
+                    });
+                }
+            });
+
+            // Screen effects
+            let shakeIntensity = 10;
+            const originalBg = render.options.background;
+            const shakeInterval = setInterval(() => {
+                render.options.background = shakeIntensity % 2 === 0 ? '#FFAAAA' : originalBg;
+                shakeIntensity--;
+                if (shakeIntensity <= 0) {
+                    clearInterval(shakeInterval);
+                    render.options.background = originalBg;
+                }
+            }, 50);
+
+            setTimeout(() => {
+                let message;
+                if (isMultiplayer) {
+                    const winner = scores[0] > scores[1] ? 1 : 2;
+                    message = `Game Over! Player ${winner} wins! (${scores[0]} - ${scores[1]})`;
+                } else {
+                    message = `Game Over! Score: ${Math.floor(totalScore)}`;
+                    if (reason) message += ` (${reason})`;
+                }
+                showMessage(message, "#d9534f", 5000);
+                
+                // Highlight restart button
+                const restartBtn = document.getElementById('restart-btn');
+                restartBtn.style.backgroundColor = "#f44336";
+                restartBtn.style.transform = "scale(1.1)";
+                restartBtn.textContent = "Play Again!";
+                
+                // Mobile vibration
+                if ("vibrate" in navigator) {
+                    navigator.vibrate([200, 100, 200, 100, 200]);
+                }
+            }, 800);
+        }
+
+        // Restart game
+        function restartGame() {
+            Composite.clear(world);
+            
+            // Reset game state
+            isHorizontal = false;
+            gameStarted = false;
+            towerHeight = 0;
+            gameOver = false;
+            level = 1;
+            specialBlockCounter = 0;
+            blockWidth = 80;
+            blockDepth = 40;
+            engine.gravity.y = 1;
+            playerTurn = 1;
+            scores = [0, 0];
+            totalScore = 0;
+            comboCount = 0;
+            windForce = 0;
+            powerUps = {
+                timeFreeze: 1,
+                slowMo: 1
+            };
+            
+            // Reset UI
+            document.getElementById('height').textContent = '0';
+            document.getElementById('score').textContent = '0';
+            document.getElementById('level').textContent = '1';
+            document.getElementById('timer').textContent = '30';
+            document.getElementById('message').textContent = '';
+            document.getElementById('wind-indicator').textContent = 'Wind: 0';
+            document.getElementById('combo-meter').style.display = "none";
+            updatePowerUpDisplay();
+            
+            const restartBtn = document.getElementById('restart-btn');
+            restartBtn.style.backgroundColor = "#4CAF50";
+            restartBtn.style.transform = "scale(1)";
+            restartBtn.textContent = "Restart Game";
+            
+            // Create new base
+            createBase();
+        }
+
+        // Toggle multiplayer mode
+        function toggleMultiplayer() {
+            isMultiplayer = !isMultiplayer;
+            document.getElementById('multiplayer-btn').textContent = 
+                isMultiplayer ? 'Single Player' : 'Multiplayer Mode';
+            
+            if (isMultiplayer) {
+                showMessage("Multiplayer mode! Player 1 starts", "#3498db", 1500);
+            }
+            
+            restartGame();
+        }
+
+        // Mouse control
+        const mouse = Mouse.create(render.canvas);
+        const mouseConstraint = MouseConstraint.create(engine, {
+            mouse: mouse,
+            constraint: {
+                stiffness: 0.2,
+                render: {
+                    visible: false
+                }
+            }
+        });
+        Composite.add(world, mouseConstraint);
+
+        render.mouse = mouse;
+
+        Events.on(mouseConstraint, 'mousedown', function(event) {
+            if (gameStarted && !gameOver) {
+                placeBlock();
+            } else if (!gameStarted) {
+                gameStarted = true;
+                createNewBlock();
+                startTimer();
+            }
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'r' || event.key === 'R') {
+                rotateBlock();
+            }
+            if (event.key === ' ' && gameStarted && !gameOver) {
+                placeBlock();
+            }
+            if (event.key === 'm' || event.key === 'M') {
+                toggleMultiplayer();
+            }
+            if (event.key === '1') {
+                activateTimeFreeze();
+            }
+            if (event.key === '2') {
+                activateSlowMo();
+            }
+        });
+
+        // UI buttons
+        document.getElementById('rotate-btn').addEventListener('click', rotateBlock);
+        document.getElementById('place-btn').addEventListener('click', placeBlock);
+        document.getElementById('restart-btn').addEventListener('click', restartGame);
+        document.getElementById('multiplayer-btn').addEventListener('click', toggleMultiplayer);
+        document.getElementById('time-freeze').addEventListener('click', activateTimeFreeze);
+        document.getElementById('slow-mo').addEventListener('click', activateSlowMo);
+        
+        // Mobile controls
+        document.getElementById('mobile-rotate').addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            rotateBlock();
+        });
+        document.getElementById('mobile-place').addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            placeBlock();
+        });
+
+        // Initialize the game
+        function initGame() {
+            createBase();
+            Render.run(render);
+            const runner = Runner.create();
+            Runner.run(runner, engine);
+            showMessage("Click or tap to place first block", "#4CAF50");
+            updatePowerUpDisplay();
+        }
+
+        // Start the game
+        initGame();
+    </script>
+</body>
+</html>
